@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <arpa/inet.h>
 
 #include <unistd.h>
@@ -16,6 +17,11 @@ Server::~Server()
     {
         close(_socket);
     }
+}
+
+void sigchldHandler(int)
+{
+    while (waitpid(-1, nullptr, WNOHANG) > 0);
 }
 
 void Server::_setupSocket()
@@ -44,6 +50,17 @@ void Server::_setupSocket()
         throw std::runtime_error("[Server::_setupSocket] listen() error");
     }
 
+    struct sigaction sa;
+    sa.sa_handler = sigchldHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+
+    if (sigaction(SIGCHLD, &sa, nullptr) < 0)
+    {
+        close(_socket);
+        throw std::runtime_error("sigaction error");
+    }
+
     std::cout << "[Server::_setupSocket] Listening on port " << _port << std::endl;
 }
 
@@ -54,6 +71,7 @@ void Server::_handleClient(int clientSocket)
 
 void Server::run()
 {
+    signal(SIGINT, SIG_DFL);
     while (true)
     {
         sockaddr_in clientAddr{};

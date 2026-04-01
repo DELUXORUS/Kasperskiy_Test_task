@@ -7,7 +7,7 @@
 class Server
 {
     public:
-        Server(int port) : _port(port) {};
+        Server(int port) : _port(port) { _setupSocket(); };
 
         void run();
 
