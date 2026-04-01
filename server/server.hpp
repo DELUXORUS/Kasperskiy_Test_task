@@ -1,0 +1,24 @@
+#ifndef SERVER_HPP_
+#define SERVER_HPP_
+
+#include <string>
+
+
+class Server
+{
+    public:
+        Server(int port) : _port(port) {};
+
+        void run();
+
+        ~Server();
+    private:
+        int _socket;
+        int _port;
+
+        void _setupSocket();
+        void _handleClient(int clientSocket);
+};
+
+
+#endif
