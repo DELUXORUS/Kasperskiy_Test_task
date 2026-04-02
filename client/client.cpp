@@ -18,8 +18,8 @@ Client::Client()
         throw std::runtime_error("[Client::Client] socket() call error");
     }
 
-    sockaddr_in serverAddr;
-    memset(reinterpret_cast<char*>(&serverAddr), '\0', sizeof(serverAddr));
+    sockaddr_in serverAddr{};
+    // memset(reinterpret_cast<char*>(&serverAddr), '\0', sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = INADDR_ANY;
@@ -37,12 +37,13 @@ Client::~Client()
     shutdown(_socket, 0);
 }
 
-bool Client::sendFile(std::string host, int port)
+bool Client::sendFile(std::string pathToFile, int port)
 {
-    sockaddr_in serverAddr;
+    sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
 
+    std::string host = "localhost";
     hostent* he  = gethostbyname(host.c_str());
 
     if (!he)

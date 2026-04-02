@@ -9,7 +9,7 @@ class Client
     public:
         Client();
 
-        bool sendFile(std::string, int port);
+        bool sendFile(std::string pathToFile, int port);
 
         ~Client();
     private:

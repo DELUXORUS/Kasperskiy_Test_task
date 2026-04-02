@@ -7,8 +7,14 @@
 #include <iostream>
 #include <netdb.h>
 #include <signal.h>
+#include <atomic>
 
 #include "server.hpp"
+
+
+volatile sig_atomic_t g_running = 1;
+volatile sig_atomic_t g_childStop = 0;
+int g_listenSocket = -1;
 
 
 Server::~Server()
@@ -19,14 +25,27 @@ Server::~Server()
     }
 }
 
-void sigchldHandler(int)
+void sigintHandler(int)
 {
-    while (waitpid(-1, nullptr, WNOHANG) > 0);
+    g_running = 0;
+
+    if (g_listenSocket >= 0)
+    {
+        close(g_listenSocket);
+    }
+}
+
+//  for childs
+
+void sigtermHandler(int)
+{
+    g_childStop = 1;
 }
 
 void Server::_setupSocket()
 {
     _socket = socket(AF_INET, SOCK_STREAM, 0);
+    g_listenSocket = _socket;
 
     if (_socket < 0)
     {
@@ -50,15 +69,15 @@ void Server::_setupSocket()
         throw std::runtime_error("[Server::_setupSocket] listen() error");
     }
 
-    struct sigaction sa;
-    sa.sa_handler = sigchldHandler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
+    struct sigaction saSigint{};
+    saSigint.sa_handler = sigintHandler;
+    sigemptyset(&saSigint.sa_mask);
+    saSigint.sa_flags = 0;
 
-    if (sigaction(SIGCHLD, &sa, nullptr) < 0)
+    if (sigaction(SIGINT, &saSigint, nullptr) < 0)
     {
         close(_socket);
-        throw std::runtime_error("sigaction error");
+        throw std::runtime_error("Sigaction error");
     }
 
     std::cout << "[Server::_setupSocket] Listening on port " << _port << std::endl;
@@ -66,14 +85,94 @@ void Server::_setupSocket()
 
 void Server::_handleClient(int clientSocket)
 {
-    
+    g_childStop = false;
+
+    struct sigaction saSigterm{};
+    saSigterm.sa_handler = sigtermHandler;
+    sigemptyset(&saSigterm.sa_mask);
+    saSigterm.sa_flags = 0;
+
+    if (sigaction(SIGTERM, &saSigterm, nullptr) < 0)
+    {
+        close(clientSocket);
+        return;
+    }
+
+    char buffer[4096];
+
+    while (!g_childStop)
+    {
+        int numSymb = recv(clientSocket, buffer, sizeof(buffer), 0);
+
+        if (numSymb == 0)
+        {
+            break;
+        }
+
+        if (numSymb < 0)
+        {
+            if (errno == EINTR)
+                continue;
+
+            break;
+        }
+    }
+
+    close(clientSocket);
+}
+
+void Server::_removeZombie()
+{
+    while (true)
+    {
+        pid_t pid = waitpid(-1, nullptr, WNOHANG);
+
+        if (pid <= 0)
+        {
+            break;
+        }
+
+        std::cout << "[Server::_removeZombie] remove zombie pid: " << pid << std::endl; 
+        _childs.erase(pid);
+    }
+}
+
+void Server::_shutdown()
+{
+    for (pid_t child : _childs)
+    {
+        std::cout << "[Server::_shutdown] kill pid: " << child << std::endl;
+        if (kill(child, SIGTERM) < 0 && errno != ESRCH)
+        {
+            std::cerr << "[Server::run] kill() error for pid " << child << std::endl;
+        }
+    }
+
+    while (!_childs.empty())
+    {
+        pid_t pid = waitpid(-1, nullptr, 0);
+
+        if (pid > 0)
+        {
+            _childs.erase(pid);
+        }
+        else
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+
+            break;
+        }
+    }
 }
 
 void Server::run()
 {
-    signal(SIGINT, SIG_DFL);
-    while (true)
+    while (g_running)
     {
+        _removeZombie();
         sockaddr_in clientAddr{};
         socklen_t clientAddrLen = sizeof(clientAddr);
 
@@ -85,6 +184,12 @@ void Server::run()
 
         if (clientSocket < 0)
         {
+            if (!g_running)
+                break;
+
+            if (errno == EINTR)
+                continue;
+
             std::cerr << "[Server::run] accept() error" << std::endl;
             continue;
         }
@@ -95,7 +200,7 @@ void Server::run()
                   << std::endl;
 
         pid_t pid = fork();
-
+        
         if (pid < 0)
         {
             std::cerr << "[Server::run] fork() error" << std::endl;
@@ -111,9 +216,15 @@ void Server::run()
         }
         else
         {
+            _childs.insert(pid);
             close(clientSocket);
         }
     }
+    
+    close(_socket);
+
+    _removeZombie();
+    _shutdown();
 }
 
 
