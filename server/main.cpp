@@ -11,10 +11,10 @@ int main(int argc, char** argv)
         throw std::invalid_argument("Please, enter path to file and port of server!");
     }
 
-    std::string pathToFile = argv[1];
+    std::string pathToCfg = argv[1];
     int port = atoi(argv[2]);
 
-    Server server(port);
+    Server server(port, pathToCfg);
     server.run();
     
 }

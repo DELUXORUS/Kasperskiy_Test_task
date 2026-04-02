@@ -1,0 +1,14 @@
+{
+  "patterns": [
+    "rm -rf",
+    "eval(",
+    "exec(",
+    "<script>",
+    "DROP TABLE",
+    "wget http://malicious",
+    "powershell -enc",
+    "base64_decode(",
+    "CreateRemoteThread",
+    "VirtualAllocEx"
+  ]
+}

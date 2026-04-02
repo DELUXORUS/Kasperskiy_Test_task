@@ -3,8 +3,10 @@
 
 #include <unistd.h>
 #include <cstring>
-#include <iostream>
 #include <netdb.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 #include "client.hpp"
 
@@ -19,7 +21,6 @@ Client::Client()
     }
 
     sockaddr_in serverAddr{};
-    // memset(reinterpret_cast<char*>(&serverAddr), '\0', sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = INADDR_ANY;
@@ -39,6 +40,22 @@ Client::~Client()
 
 bool Client::sendFile(std::string pathToFile, int port)
 {
+
+    std::ifstream file(pathToFile, std::ios::binary);
+
+    if (!file.is_open())
+    {
+        throw std::runtime_error("File opening error");
+    }
+
+    char buffer[4096];
+
+    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) 
+    {
+        size_t bytes = file.gcount();
+        send(_socket, buffer, bytes, 0);
+    }
+
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);

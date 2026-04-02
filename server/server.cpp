@@ -2,20 +2,31 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 
+#include <signal.h>
 #include <unistd.h>
+#include <netdb.h>
 #include <cstring>
 #include <iostream>
-#include <netdb.h>
-#include <signal.h>
-#include <atomic>
+#include <fstream>
+#include <sstream>
 
 #include "server.hpp"
+#include "nlohmann/json.hpp"
+
+
+using json = nlohmann::json;
 
 
 volatile sig_atomic_t g_running = 1;
 volatile sig_atomic_t g_childStop = 0;
 int g_listenSocket = -1;
 
+Server::Server(int port, const std::string& pathToCfg) : _port(port) 
+{
+    _setupSocket();
+    _createSignals();
+    _readPatterns(pathToCfg);
+}
 
 Server::~Server()
 {
@@ -69,6 +80,22 @@ void Server::_setupSocket()
         throw std::runtime_error("[Server::_setupSocket] listen() error");
     }
 
+    // struct sigaction saSigint{};
+    // saSigint.sa_handler = sigintHandler;
+    // sigemptyset(&saSigint.sa_mask);
+    // saSigint.sa_flags = 0;
+
+    // if (sigaction(SIGINT, &saSigint, nullptr) < 0)
+    // {
+    //     close(_socket);
+    //     throw std::runtime_error("Sigaction error");
+    // }
+
+    std::cout << "[Server::_setupSocket] Listening on port " << _port << std::endl;
+}
+
+void Server::_createSignals()
+{
     struct sigaction saSigint{};
     saSigint.sa_handler = sigintHandler;
     sigemptyset(&saSigint.sa_mask);
@@ -79,8 +106,42 @@ void Server::_setupSocket()
         close(_socket);
         throw std::runtime_error("Sigaction error");
     }
+}
 
-    std::cout << "[Server::_setupSocket] Listening on port " << _port << std::endl;
+void Server::_readPatterns(const std::string& pathToCfg)
+{
+    std::ifstream file(pathToCfg);
+    
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open config file: " << pathToCfg << '\n';
+        return;
+    }
+
+    json j;
+
+    try
+    {
+        file >> j;
+
+        if (!j.contains("patterns"))
+        {
+            std::cerr << "Config does not contain key \"patterns\"\n";
+            return;
+        }
+
+        if (!j["patterns"].is_array())
+        {
+            std::cerr << "\"patterns\" must be an array\n";
+            return;
+        }
+
+        _patterns = j["patterns"].get<std::vector<std::string>>();
+    }
+    catch (const json::exception& e)
+    {
+        std::cerr << "JSON parse error: " << e.what() << '\n';
+    }
 }
 
 void Server::_handleClient(int clientSocket)
@@ -99,13 +160,19 @@ void Server::_handleClient(int clientSocket)
     }
 
     char buffer[4096];
+    int countMalicious = 0;
 
     while (!g_childStop)
     {
         int numSymb = recv(clientSocket, buffer, sizeof(buffer), 0);
 
+        std::string potentialPatterns(buffer);
+
+        // countMalicious += _checkPatterns(potentialPatterns);
+
         if (numSymb == 0)
         {
+            std::cout << "[Server::_handleClient] child_PID: The client has not sent anything. Terminating and closing the connection" << std::endl;
             break;
         }
 
@@ -118,6 +185,7 @@ void Server::_handleClient(int clientSocket)
         }
     }
 
+    
     close(clientSocket);
 }
 
