@@ -19,23 +19,13 @@ Client::Client()
     {
         throw std::runtime_error("[Client::Client] socket() call error");
     }
-
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = INADDR_ANY;
-
-    if (bind(_socket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) != 0)
-    {
-        throw std::runtime_error("[Client::Client] bind() call error");
-    }
     
     std::cout << "[Client::Client] Ready" << std::endl;
 }
 
 Client::~Client()
 {
-    shutdown(_socket, 0);
+    close(_socket);
 }
 
 bool Client::sendFile(std::string pathToFile, int port)
@@ -48,14 +38,6 @@ bool Client::sendFile(std::string pathToFile, int port)
         throw std::runtime_error("File opening error");
     }
 
-    char buffer[4096];
-
-    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) 
-    {
-        size_t bytes = file.gcount();
-        send(_socket, buffer, bytes, 0);
-    }
-
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
@@ -65,7 +47,7 @@ bool Client::sendFile(std::string pathToFile, int port)
 
     if (!he)
     {
-        std::cerr << "Host not found\n";
+        std::cerr << "Host not found" << std::endl;
         return false;
     }
 
@@ -73,11 +55,77 @@ bool Client::sendFile(std::string pathToFile, int port)
 
     if (connect(_socket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) < 0)
     {
-        std::cerr << "Connection error!\n" << std::endl;
+        std::cerr << "Connection error!" << std::endl;
         return false;
     }
 
-    std::cout << "Connection to server complete!" << std::endl;
+    char buffer[4096];
+    while (true)
+    {
+        file.read(buffer, sizeof(buffer));
+        std::streamsize bytesRead = file.gcount();
+
+        if (bytesRead < 0)
+        {
+            std::cerr << "File read error" << std::endl;
+            return false;
+        }
+
+        if (bytesRead == 0)
+            break;
+
+        std::streamsize totalSent = 0;
+        while (totalSent < bytesRead)
+        {
+            ssize_t sent = send(_socket, buffer + totalSent, bytesRead - totalSent, 0);
+
+            if (sent < 0)
+            {
+                if (errno == EINTR)
+                    continue;
+
+                std::cerr << "[Client::sendFile] send() error" << std::endl;
+                return false;
+            }
+
+            totalSent += sent;
+        }
+
+        if (file.eof())
+            break;
+    }
+
+    
+
+    std::cout << "The data has been transmitted" << std::endl;
+
+    shutdown(_socket, SHUT_WR);
+
+    std::cout << "[Client::sendFile] Waiting for server response..." << std::endl;
+
+    char recvBuffer[4096];
+
+    while (true)
+    {
+        ssize_t bytes = recv(_socket, recvBuffer, sizeof(recvBuffer), 0);
+
+        if (bytes == 0)
+        {
+            break;
+        }
+        else if (bytes < 0)
+        {
+            if (errno == EINTR)
+                continue;
+
+            std::cerr << "[Client::sendFile] recv() error" << std::endl;
+            return false;
+        }
+
+        std::cout.write(recvBuffer, bytes);
+    }
+
+    std::cout << std::endl;
     return 1;
 }
 

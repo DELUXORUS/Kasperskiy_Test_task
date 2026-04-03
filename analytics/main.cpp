@@ -1,8 +1,21 @@
+#include <exception>
+#include <iostream>
+
 #include "analytics.hpp"
 
 
 int main()
 {
-    Analytics stats;
-    stats.run();
+    try
+    {
+        Analytics analytics;
+        analytics.run();
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << ex.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
 }

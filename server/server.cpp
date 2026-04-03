@@ -86,25 +86,6 @@ void Server::_updateStats(const std::unordered_map<size_t, size_t>& foundPattern
     sem_post(&_stats->semaphor);
 }
 
-// void Server::_updateStats(const std::vector<int>& foundPatterns)
-// {
-//     sem_wait(&_stats->semaphor);
-
-//     _stats->countFiles++;
-
-//     size_t* countsPatterns = getPatternCounts(_stats);
-
-//     for (int idx : foundPatterns)
-//     {
-//         if (idx >= 0 && static_cast<size_t>(idx) < _patterns.size())
-//         {
-//             countsPatterns[idx]++;
-//         }
-//     }
-
-//     sem_post(&_stats->semaphor);
-// }
-
 Server::~Server()
 {
     if (_stats != nullptr)
@@ -243,21 +224,6 @@ std::unordered_map<size_t, size_t> Server::_checkPatterns(const std::string& buf
     return foundPatterns;
 }
 
-// std::vector<size_t> Server::_checkPatterns(std::string& buffer)
-// {
-//     std::vector<size_t> foundIndexes;
-
-//     for (size_t i = 0; i < _patterns.size(); ++i)
-//     {
-//         if (buffer.find(_patterns[i]) != std::string::npos)
-//         {
-//             foundIndexes.push_back(i);
-//         }
-//     }
-
-//     return foundIndexes;
-// }
-
 void mergeMaps(std::unordered_map<size_t, size_t>& foundPatterns,
                std::unordered_map<size_t, size_t>& foundPatternsBuffer)
 {
@@ -312,25 +278,15 @@ void Server::_handleClient(int clientSocket)
         std::string bufStr(buffer, numSymb);
 
         std::unordered_map<size_t, size_t> foundPatternsBuffer = _checkPatterns(bufStr);
-
         mergeMaps(foundPatterns, foundPatternsBuffer);
-
-        // for (auto pair : foundPatternsBuffer)
-        // {
-        //     if (foundPatterns.find(pair.first) != foundPatterns.end())
-        //     {
-        //         foundPatterns[pair.first] += pair.second;
-        //     }
-        //     else
-        //     {
-        //         foundPatterns.insert(pair);
-        //     }
-        // }
-        // _updateStats(_checkPatterns(bufStr));
     }
 
     _updateStats(foundPatterns);
     
+    if (g_childStop == 1)
+    {
+        std::cout << "[Server::_handleClient] child_PID: The process sends data and shuts down when requested by the server" << std::endl;
+    }
 
     std::ostringstream response;
     response << "Detected threats count: " << foundPatterns.size() << "\n";
@@ -341,7 +297,7 @@ void Server::_handleClient(int clientSocket)
     }
     else
     {
-        response << "Threat types:\n";
+        response << "::Threat types::\n";
 
         for (const auto& pair : foundPatterns)
         {
@@ -353,7 +309,7 @@ void Server::_handleClient(int clientSocket)
                 response << _patterns[patternIndex]
                          << " -> "
                          << threatCount
-                         << "\n";
+                         << std::endl;
             }
         }
     }
@@ -379,10 +335,8 @@ void Server::_handleClient(int clientSocket)
 
         totalSent += sent;
     }
-    // if (numSymb > 0)
-    // {
-        // std::cout << "[Server::_handleClient] child_PID: " << getpid() << " the file has been checked for threats" << std::endl;
-    // }
+
+    std::cout << "[Server::_handleClient] child_PID: The data about the verified file has been successfully sent to the client" << std::endl;
 
     close(clientSocket);
 }
@@ -391,7 +345,7 @@ void Server::_removeZombie()
 {
     while (true)
     {
-        pid_t pid = waitpid(-1, nullptr, WNOHANG);
+        pid_t pid = waitpid(-1, nullptr, WNOHANG); 
 
         if (pid <= 0)
         {
@@ -405,15 +359,6 @@ void Server::_removeZombie()
 
 void Server::_shutdown()
 {
-    if (_statsPid > 0)
-    {
-        kill(_statsPid, SIGTERM);
-        waitpid(_statsPid, nullptr, 0);
-    }
-
-    unlink("/tmp/stats_fifo_req");
-    unlink("/tmp/stats_fifo_resp");
-
     for (pid_t child : _childs)
     {
         std::cout << "[Server::_shutdown] kill pid: " << child << std::endl;
@@ -441,6 +386,17 @@ void Server::_shutdown()
             break;
         }
     }
+
+    if (_statsPid > 0)
+    {
+        kill(_statsPid, SIGTERM);
+        waitpid(_statsPid, nullptr, 0);
+    }
+
+    unlink(_fifoReq);
+    unlink(_fifoResp);
+
+    std::cout << "[Server::_shutdown] The IPC channel is closed. Shutting down the server" << std::endl;
 }
 
 std::string Server::_getStats()
@@ -480,6 +436,11 @@ void Server::_runStatsIpc()
         int reqFd = open(_fifoReq, O_RDONLY);
         if (reqFd < 0)
         {
+            if (errno == EINTR && !g_running)
+            {
+                break;
+            }
+
             continue;
         }
 

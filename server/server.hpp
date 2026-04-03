@@ -3,6 +3,7 @@
 
 
 #include <sys/mman.h>
+
 #include <semaphore.h>
 #include <string>
 #include <utility>
@@ -49,8 +50,6 @@ class Server
         std::unordered_map<size_t, size_t> _checkPatterns(const std::string& buffer);
         std::string _getStats(); 
         void _runStatsIpc();
-        // void _updateStats(const std::vector<int>& foundPatterns);
-        // std::vector<size_t> _checkPatterns(std::string& buffer);
 };  
 
 
